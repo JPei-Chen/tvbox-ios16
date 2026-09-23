@@ -1,11 +1,35 @@
 import SwiftUI
 import Combine
 
+#if os(iOS)
+import UIKit
+
+/// 应用代理：负责播放器全屏时的方向锁定。
+/// 播放器进入全屏时把 supportedInterfaceOrientations 收窄为横屏，
+/// 配合 UIWindowScene.requestGeometryUpdate 强制设备旋转到横屏。
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    /// 是否处于"仅横屏"锁定状态（全屏播放器生命周期内为 true）。
+    static var isLandscapeOnly = false
+
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        Self.isLandscapeOnly
+            ? .landscape
+            : [.portrait, .landscapeLeft, .landscapeRight]
+    }
+}
+#endif
+
 /// 应用入口。
 /// 负责将全局状态 `AppState` 注入到根视图。
 /// 持久化由 `CacheStore` 自行管理（JSON 文件落盘，兼容 iOS 16）。
 @main
 struct tvboxApp: App {
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    #endif
     /// 全局运行时状态（配置加载状态、当前源、分栏布局状态等）。
     @StateObject private var appState = AppState()
     /// 网络状态监控。
