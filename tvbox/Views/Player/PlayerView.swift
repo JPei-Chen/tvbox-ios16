@@ -86,6 +86,10 @@ struct PlayerView: View {
     var onPlayNext: (() -> Void)? = nil
     var systemController: SystemPlayerSessionController? = nil
     var vlcController: VLCPlayerController? = nil
+    /// 是否作为全屏播放器呈现。
+    var isFullScreenPresentation: Bool = false
+    /// 全屏顶部标题。
+    var fullScreenTitle: String = ""
     @AppStorage(HawkConfig.PLAY_TYPE_VOD) private var vodPlayTypeRaw = -1
     @AppStorage(HawkConfig.PLAY_TYPE) private var legacyPlayTypeRaw = PlayerEngine.system.rawValue
     
@@ -114,7 +118,9 @@ struct PlayerView: View {
                     onToggleFullScreen: onToggleFullScreen,
                     canPlayNext: canPlayNext,
                     onPlayNext: onPlayNext,
-                    sharedController: systemController
+                    sharedController: systemController,
+                    isFullScreenPresentation: isFullScreenPresentation,
+                    fullScreenTitle: fullScreenTitle
                 )
             case .vlc:
                 VLCVodPlayerView(
@@ -125,7 +131,9 @@ struct PlayerView: View {
                     onToggleFullScreen: onToggleFullScreen,
                     canPlayNext: canPlayNext,
                     onPlayNext: onPlayNext,
-                    sharedController: vlcController
+                    sharedController: vlcController,
+                    isFullScreenPresentation: isFullScreenPresentation,
+                    fullScreenTitle: fullScreenTitle
                 )
             }
         }
@@ -160,6 +168,10 @@ struct AVPlayerContentView: View {
     var canPlayNext: Bool = false
     var onPlayNext: (() -> Void)? = nil
     var sharedController: SystemPlayerSessionController? = nil
+    /// 是否作为全屏播放器呈现（显示顶部返回栏，双击语义切换）。
+    var isFullScreenPresentation: Bool = false
+    /// 全屏顶部标题（如「第3集」）。
+    var fullScreenTitle: String = ""
     @AppStorage(HawkConfig.PLAY_SPEED) private var savedPlaybackRate = 1.0
     @State private var player: AVPlayer?
     @State private var playbackEndObserver: NSObjectProtocol?
@@ -254,8 +266,54 @@ struct AVPlayerContentView: View {
                     }
                 },
                 currentTime: currentTime,
-                duration: duration
+                duration: duration,
+                isFullScreenPresentation: isFullScreenPresentation,
+                onEnterFullScreen: { onToggleFullScreen?() }
             )
+        }
+        #endif
+        #if os(iOS)
+        .overlay(alignment: .top) {
+            // 全屏时的顶部返回栏：跟随控制条一起显示/隐藏，
+            // 避免常驻按钮导致误触退出全屏。
+            if isFullScreenPresentation {
+                HStack(spacing: 12) {
+                    Button {
+                        wakeUpControls()
+                        onToggleFullScreen?()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 40, height: 40)
+                            .background(Color.black.opacity(0.35))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Text(fullScreenTitle)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+
+                    Spacer()
+                }
+                .padding(.leading, 14)
+                .padding(.trailing, 20)
+                .padding(.top, 10)
+                .background(
+                    LinearGradient(
+                        colors: [.black.opacity(0.55), .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
+                    .frame(height: 120), alignment: .top
+                )
+                .opacity(showControls ? 1.0 : 0.0)
+                .animation(.easeInOut(duration: 0.3), value: showControls)
+                .allowsHitTesting(showControls)
+            }
         }
         #endif
         .overlay(alignment: .bottom) {
