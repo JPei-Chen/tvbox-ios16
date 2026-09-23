@@ -26,6 +26,10 @@ struct PlayerGestureLayer: View {
     // MARK: - Properties
     let currentTime: Double
     let duration: Double
+    /// 是否处于全屏播放器。决定双击语义：非全屏 = 进入全屏；全屏 = 播放/暂停。
+    var isFullScreenPresentation: Bool = false
+    /// 非全屏状态下双击进入全屏的回调。
+    var onEnterFullScreen: (() -> Void)? = nil
 
     // MARK: - State
     @State private var gestureMode: PlayerGestureMode = .none
@@ -104,7 +108,13 @@ struct PlayerGestureLayer: View {
                 .gesture(pinchGesture)
                 .onTapGesture(count: 2) {
                     HapticManager.shared.lightImpact()
-                    onTogglePlayPause()
+                    if !isFullScreenPresentation, let enter = onEnterFullScreen {
+                        // 竖屏小窗：双击进入全屏（主流影视 App 交互）。
+                        enter()
+                    } else {
+                        // 全屏状态：双击播放/暂停。
+                        onTogglePlayPause()
+                    }
                 }
                 .onTapGesture(count: 1) {
                     onToggleControls()
