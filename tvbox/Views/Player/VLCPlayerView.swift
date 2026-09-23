@@ -847,6 +847,10 @@ struct VLCVodPlayerView: View {
     var onPlayNext: (() -> Void)? = nil
     var sharedController: VLCPlayerController? = nil
     @StateObject private var ownedController = VLCPlayerController()
+    /// 是否作为全屏播放器呈现（显示顶部返回栏，双击语义切换）。
+    var isFullScreenPresentation: Bool = false
+    /// 全屏顶部标题（如「第3集」）。
+    var fullScreenTitle: String = ""
     @State private var isDraggingProgress = false
     @State private var draggingSeconds: Double = 0
     
@@ -898,8 +902,53 @@ struct VLCVodPlayerView: View {
                 onToggleControls: { wakeUpControls() },
                 onZoomChanged: { _ in },
                 currentTime: controller.currentTimeSeconds,
-                duration: controller.durationSeconds
+                duration: controller.durationSeconds,
+                isFullScreenPresentation: isFullScreenPresentation,
+                onEnterFullScreen: { onToggleFullScreen?() }
             )
+        }
+        #endif
+        #if os(iOS)
+        .overlay(alignment: .top) {
+            // 全屏时的顶部返回栏：跟随控制条一起显示/隐藏。
+            if isFullScreenPresentation {
+                HStack(spacing: 12) {
+                    Button {
+                        wakeUpControls()
+                        onToggleFullScreen?()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 40, height: 40)
+                            .background(Color.black.opacity(0.35))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Text(fullScreenTitle)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+
+                    Spacer()
+                }
+                .padding(.leading, 14)
+                .padding(.trailing, 20)
+                .padding(.top, 10)
+                .background(
+                    LinearGradient(
+                        colors: [.black.opacity(0.55), .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
+                    .frame(height: 120), alignment: .top
+                )
+                .opacity(showControls ? 1.0 : 0.0)
+                .animation(.easeInOut(duration: 0.3), value: showControls)
+                .allowsHitTesting(showControls)
+            }
         }
         #endif
         .overlay(alignment: .bottom) {
@@ -1956,6 +2005,8 @@ struct VLCVodPlayerView: View {
     var onToggleFullScreen: (() -> Void)? = nil
     var canPlayNext: Bool = false
     var onPlayNext: (() -> Void)? = nil
+    var isFullScreenPresentation: Bool = false
+    var fullScreenTitle: String = ""
     
     var body: some View {
         AVPlayerContentView(
@@ -1965,7 +2016,9 @@ struct VLCVodPlayerView: View {
             onPlaybackEnded: onPlaybackEnded,
             onToggleFullScreen: onToggleFullScreen,
             canPlayNext: canPlayNext,
-            onPlayNext: onPlayNext
+            onPlayNext: onPlayNext,
+            isFullScreenPresentation: isFullScreenPresentation,
+            fullScreenTitle: fullScreenTitle
         )
     }
 }
