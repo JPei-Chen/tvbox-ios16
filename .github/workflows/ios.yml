@@ -71,7 +71,7 @@ jobs:
           echo "=== xcodebuild 退出码已忽略，交由下一步判定 ==="
           tail -5 build.log
 
-      - name: 提取构建日志摘要（写入 Job Summary，公开可读）
+      - name: 提取构建日志摘要（Summary + 错误行写入 Annotations）
         if: always()
         run: |
           echo "=== 诊断信息 ==="
@@ -81,12 +81,12 @@ jobs:
           {
             echo "## Xcode 构建错误摘要"
             echo ""
-            echo "### error 行（去重，最多 60 条）"
+            echo "### error 行（按出现顺序去重，最多 60 条）"
             echo ""
             echo '```text'
             grep -E "error:|fatal error:" build.log 2>/dev/null \
               | sed -e 's|/Users/runner/work/tvbox-ios16/tvbox-ios16/||' \
-              | sort -u | head -60 || echo "（未匹配到 error: 行）"
+              | awk '!seen[$0]++' | head -60 || echo "（未匹配到 error: 行）"
             echo '```'
             echo ""
             echo "### 日志最后 80 行"
@@ -95,6 +95,29 @@ jobs:
             tail -80 build.log 2>/dev/null || echo "（build.log 不存在）"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY" || true
+
+          # 关键：把前 9 条错误行逐条输出为 Annotations。
+          # Annotations 匿名可经 GitHub API 读取（Summary 区块需要登录才能看），
+          # 每步注解上限 10 条，这里取 9 条留余量。
+          grep -E "error:|fatal error:" build.log 2>/dev/null \
+            | sed -e 's|/Users/runner/work/tvbox-ios16/tvbox-ios16/||' \
+            | awk '!seen[$0]++' | head -9 | cut -c1-400 \
+            | while IFS= read -r line; do
+                esc=$(printf '%s' "$line" | sed -e 's/%/%25/g' -e 's/\r/%0D/g')
+                echo "::error::$esc"
+              done
+          if ! grep -qE "error:|fatal error:" build.log 2>/dev/null; then
+            echo "::error::build.log 中未匹配到 error: 行（构建以其他方式失败，需看完整日志）"
+          fi
+
+      - name: 失败时上传构建日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: 判定构建结果
         run: |
