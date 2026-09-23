@@ -2,6 +2,16 @@ import Foundation
 import SwiftUI
 import Combine
 
+/// 推荐页的横向内容分区（每个分区对应一个分类的第一页数据）。
+struct HomeRecommendSection: Identifiable {
+    /// 分区对应的分类。
+    let sort: MovieSort.SortData
+    /// 分区内的视频列表。
+    var videos: [Movie.Video] = []
+    /// 稳定标识。
+    var id: String { sort.id }
+}
+
 /// 首页 ViewModel
 @MainActor
 class HomeViewModel: ObservableObject {
@@ -11,6 +21,8 @@ class HomeViewModel: ObservableObject {
     @Published var selectedSort: MovieSort.SortData?
     /// 首页推荐内容（对应"推荐"分类）。
     @Published var homeVideos: [Movie.Video] = []
+    /// 推荐页分区（热门电影/剧集/综艺/动漫等横向内容行）。
+    @Published var recommendSections: [HomeRecommendSection] = []
     /// 普通分类的视频列表（分页加载）。
     @Published var categoryVideos: [Movie.Video] = []
     /// 页面加载状态（分类加载与分页共用）。
@@ -73,6 +85,27 @@ class HomeViewModel: ObservableObject {
             }
     }
     
+    /// 拉取推荐页分区数据：取前 4 个分类，各拉第一页，组成横向内容行。
+    /// 单个分区拉取失败不影响其他分区；已有数据时不重复拉取。
+    func loadRecommendSections() async {
+        guard let source = ApiConfig.shared.homeSourceBean else { return }
+        guard recommendSections.isEmpty else { return }
+        let candidates = Array(sorts.filter { $0.id != "home" }.prefix(4))
+        guard !candidates.isEmpty else { return }
+
+        recommendSections = candidates.map { HomeRecommendSection(sort: $0) }
+        for (index, sort) in candidates.enumerated() {
+            do {
+                let videos = try await sourceService.getList(sourceBean: source, sortData: sort, page: 1)
+                guard index < recommendSections.count else { return }
+                recommendSections[index].videos = Array(videos.prefix(12))
+            } catch {
+                // 分区加载失败保持空行，用户切到该分类页仍能正常浏览。
+                continue
+            }
+        }
+    }
+
     /// 选择分类
     func selectSort(_ sort: MovieSort.SortData) {
         // 切分类时先重置分页状态，避免旧分类残留数据闪烁。
@@ -144,6 +177,7 @@ class HomeViewModel: ObservableObject {
         currentPage = 1
         hasMore = true
         categoryVideos = []
+        recommendSections = []
         errorMessage = nil
         await loadSorts()
         
