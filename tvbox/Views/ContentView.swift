@@ -20,11 +20,15 @@ struct ContentView: View {
     @State private var showSetup = false
     /// 首次配置页历史回填目标输入框。
     @State private var setupInputTarget: ApiInputTarget = .vod
-    
+    /// 启动阶段：有已保存配置时显示启动加载页（成功进主页，失败展示重试）。
+    @State private var isBooting = false
+
     var body: some View {
         Group {
             if appState.isConfigLoaded {
                 mainTabView
+            } else if isBooting {
+                bootSplashView
             } else {
                 setupView
             }
@@ -39,11 +43,87 @@ struct ContentView: View {
             let defaults = UserDefaults.standard
             let savedVodUrl = defaults.string(forKey: HawkConfig.API_URL) ?? ""
             let savedLiveUrl = defaults.string(forKey: HawkConfig.LIVE_API_URL) ?? ""
-            if !savedVodUrl.isEmpty {
-                // 启动自动恢复配置，避免每次重启都回到首次配置页。
-                Task {
-                    await appState.loadConfig(vodUrl: savedVodUrl, liveUrl: savedLiveUrl)
+            guard !savedVodUrl.isEmpty else { return }
+            startBoot(vodUrl: savedVodUrl, liveUrl: savedLiveUrl)
+        }
+    }
+
+    // MARK: - 启动加载页
+
+    /// 冷启动直达主页：加载成功自动进入；失败在启动页给出错误与重试入口，
+    /// 不再让用户误以为"每次打开都要重新配置"。
+    private var bootSplashView: some View {
+        ZStack {
+            AppTheme.primaryGradient
+                .ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                Image(systemName: "play.tv.fill")
+                    .font(.system(size: 72))
+                    .foregroundStyle(AppTheme.accentGradient)
+                    .shadow(color: .red.opacity(0.3), radius: 15, x: 0, y: 10)
+
+                Text("TVBox")
+                    .font(.system(size: 40, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white)
+                    .tracking(2)
+
+                if let error = appState.configLoadError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 44)
+
+                    Button {
+                        let defaults = UserDefaults.standard
+                        startBoot(
+                            vodUrl: defaults.string(forKey: HawkConfig.API_URL) ?? "",
+                            liveUrl: defaults.string(forKey: HawkConfig.LIVE_API_URL) ?? ""
+                        )
+                    } label: {
+                        Text("重新加载")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 13)
+                            .background(AppTheme.accentGradient)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 60)
+
+                    Button {
+                        // 放弃自动恢复，回到首次配置页手动处理
+                        isBooting = false
+                    } label: {
+                        Text("重新配置接口")
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    ProgressView()
+                        .tint(.white)
+                        .scaleEffect(1.2)
+                    Text("正在加载配置...")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.6))
                 }
+            }
+        }
+    }
+
+    private func startBoot(vodUrl: String, liveUrl: String) {
+        isBooting = true
+        appState.configLoadError = nil
+        Task {
+            await appState.loadConfig(vodUrl: vodUrl, liveUrl: liveUrl)
+            if !appState.isConfigLoaded {
+                // 保留启动页展示错误与重试按钮，由用户决定重试或重新配置
+                isBooting = true
+            } else {
+                isBooting = false
             }
         }
     }
