@@ -4,6 +4,8 @@ import SwiftUI
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     @EnvironmentObject var appState: AppState
+    /// 观看历史（用于「继续观看」区块），实时响应增删。
+    @ObservedObject private var historyStore = CacheStore.shared
     @State private var categoryScrollAnchorId: String?
     
     // 网格布局
@@ -218,8 +220,13 @@ struct HomeView: View {
                 let videos = viewModel.selectedSort?.id == "home"
                     ? viewModel.homeVideos
                     : viewModel.categoryVideos
-                
+
                 ScrollView {
+                    // 首页 tab 顶部展示「继续观看」，快速回到上次看到的地方。
+                    if viewModel.selectedSort?.id == "home" {
+                        continueWatchingSection
+                    }
+
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(videos) { video in
                             NavigationLink(value: video) {
@@ -251,6 +258,114 @@ struct HomeView: View {
         }
         .navigationDestination(for: Movie.Video.self) { video in
             DetailView(video: video)
+        }
+    }
+
+    // MARK: - 继续观看
+
+    /// 最近 10 条观看记录，最新在前。
+    private var recentRecords: [VodRecord] {
+        Array(historyStore.records.prefix(10))
+    }
+
+    @ViewBuilder
+    private var continueWatchingSection: some View {
+        if !recentRecords.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.orange)
+                    Text("继续观看")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(.white)
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(recentRecords) { record in
+                            NavigationLink(value: movieVideo(from: record)) {
+                                ContinueWatchingCard(record: record)
+                            }
+                            #if os(iOS)
+                            .buttonStyle(VodCardPressStyle())
+                            #else
+                            .buttonStyle(.plain)
+                            #endif
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+            }
+            .padding(.top, 12)
+        }
+    }
+
+    /// 从观看记录还原可导航的视频对象（与历史页同一规则）。
+    private func movieVideo(from item: VodRecord) -> Movie.Video {
+        Movie.Video(id: item.vodId, name: item.vodName, pic: item.vodPic, sourceKey: item.sourceKey)
+    }
+}
+
+/// 「继续观看」卡片：横向封面 + 片名 + 上次看到的位置。
+struct ContinueWatchingCard: View {
+    let record: VodRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack {
+                CachedAsyncImage(url: URL.posterURL(from: record.vodPic)) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(2/3, contentMode: .fill)
+                } placeholder: {
+                    RoundedRectangle(cornerRadius: AppTheme.cardRadius)
+                        .fill(Color.white.opacity(0.05))
+                        .aspectRatio(2/3, contentMode: .fill)
+                        .overlay(
+                            Image(systemName: "film.fill")
+                                .font(.system(size: 26))
+                                .foregroundColor(.white.opacity(0.2))
+                        )
+                }
+                .frame(width: 110, height: 165)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+                .overlay(alignment: .bottom) {
+                    // 底部渐变，保护进度文字可读性
+                    LinearGradient(
+                        colors: [.black.opacity(0.75), .clear],
+                        startPoint: .bottom,
+                        endPoint: .center
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+                }
+                .overlay(alignment: .bottomLeading) {
+                    if !record.playNote.isEmpty {
+                        Text(record.playNote)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .padding(.bottom, 6)
+                            .padding(.leading, 6)
+                    }
+                }
+                .overlay(alignment: .center) {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 34))
+                        .foregroundColor(.white.opacity(0.85))
+                        .shadow(radius: 6)
+                }
+            }
+
+            Text(record.vodName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .frame(width: 110, alignment: .leading)
         }
     }
 }
