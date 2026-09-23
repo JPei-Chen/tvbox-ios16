@@ -1,0 +1,109 @@
+name: Build unsigned IPA (TrollStore)
+
+# 手动触发（Actions 页面点 Run workflow），或推送到 main/master 时自动构建。
+# 产物：TVBox-unsigned.ipa —— 未签名，可直接用巨魔 TrollStore 安装。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    name: Build TVBox.ipa
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 确认 Xcode 环境
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+          echo "--- 可用的 iPhoneOS SDK ---"
+          xcodebuild -showsdks | grep -i iphoneos || true
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 用 project.yml 生成 Xcode 工程
+        run: xcodegen generate
+
+      - name: 打印关键构建设置（确认最低系统版本）
+        run: |
+          xcodebuild -project tvbox.xcodeproj -scheme tvbox -showBuildSettings -sdk iphoneos \
+            | grep -E "IPHONEOS_DEPLOYMENT_TARGET|PRODUCT_BUNDLE_IDENTIFIER|PRODUCT_NAME|SWIFT_VERSION" || true
+
+      - name: 归档构建（关闭代码签名）
+        run: |
+          set -o pipefail
+          rm -rf build
+          xcodebuild archive \
+            -project tvbox.xcodeproj \
+            -scheme tvbox \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$PWD/build/tvbox.xcarchive" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            SWIFT_VERSION=5.0 \
+            ONLY_ACTIVE_ARCH=NO
+
+      - name: 打包成未签名 IPA
+        run: |
+          set -euo pipefail
+
+          APP_PATH=$(find build/tvbox.xcarchive/Products/Applications -maxdepth 1 -name "*.app" -print -quit)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::归档产物里没找到 .app"
+            ls -R build/tvbox.xcarchive/Products || true
+            exit 1
+          fi
+          echo "找到 App：$APP_PATH"
+
+          APP_NAME=$(basename "$APP_PATH")
+          rm -rf build/Payload
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" "build/Payload/$APP_NAME"
+
+          # 去掉可能残留的签名目录
+          rm -rf "build/Payload/$APP_NAME/_CodeSignature"
+
+          # ad-hoc 签名（可选）：签好后在 TrollStore / AltStore 下都更省心。
+          # 若失败，就清掉残留签名目录，改由 TrollStore 安装时自行签名（一样能装）。
+          if codesign --force --deep --sign - "build/Payload/$APP_NAME" 2>/dev/null; then
+            echo "ad-hoc 签名完成"
+          else
+            echo "ad-hoc 签名失败，交由 TrollStore 安装时签名"
+            find "build/Payload/$APP_NAME" -name "_CodeSignature" -type d -prune -exec rm -rf {} + || true
+          fi
+
+          echo "=== 关键信息 ==="
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "build/Payload/$APP_NAME/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "build/Payload/$APP_NAME/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "build/Payload/$APP_NAME/Info.plist" || true
+          echo "=== Payload 结构 ==="
+          ls -la "build/Payload/$APP_NAME"
+
+          cd build
+          rm -f TVBox-unsigned.ipa
+          zip -qry TVBox-unsigned.ipa Payload
+
+          echo "=== 产物 ==="
+          ls -lh TVBox-unsigned.ipa
+
+      - name: 上传 IPA 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVBox-unsigned-ipa
+          path: build/TVBox-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
