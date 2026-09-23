@@ -666,6 +666,8 @@ struct DetailView: View {
 
     private func openFullScreenPlayer() {
         #if os(iOS)
+        // 播放地址就绪后才呈现全屏，避免 cover 内容条件不成立时出现空白页
+        guard viewModel.playUrl != nil else { return }
         // 先锁定横屏再呈现全屏 cover，避免呈现动画期间旋转请求被系统吞掉。
         FullScreenPlayerView.setLandscapeLocked(true)
         showFullScreen = true
@@ -723,37 +725,76 @@ struct FullScreenPlayerView: View {
     /// 顶部标题（如「第3集」）。
     var title: String = ""
     @Environment(\.dismiss) private var dismiss
+    #if os(iOS)
+    /// 设备物理朝向（加速度计实时上报，不受系统方向锁影响），
+    /// 用于决定旋转兜底时往哪边转（Home 键在左还是右）。
+    @State private var deviceOrientation: UIDevice.Orientation = .unknown
+    #endif
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        GeometryReader { proxy in
+            // 横竖屏自适应：
+            // - 系统旋转成功（未开方向锁定）时容器为横屏，播放器直接铺满；
+            // - 控制中心开着「竖排方向锁定」时旋转请求会被系统拒绝，容器保持竖屏，
+            //   此时把播放器旋转 90° 兜底，保证任何情况下都能满屏观看。
+            let isPortraitContainer = proxy.size.height > proxy.size.width
+            #if os(iOS)
+            let rotateDegrees: Double = isPortraitContainer ? Self.fallbackRotationDegrees(deviceOrientation) : 0
+            #else
+            let rotateDegrees: Double = 0
+            #endif
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            PlayerView(
-                urlString: urlString,
-                startPosition: startPosition,
-                onProgressChanged: onProgressChanged,
-                onPlaybackEnded: onPlaybackEnded,
-                onToggleFullScreen: {
-                    if let onCloseRequested {
-                        onCloseRequested()
-                    } else {
-                        dismiss()
-                    }
-                },
-                canPlayNext: canPlayNext,
-                onPlayNext: onPlayNext,
-                systemController: systemController,
-                vlcController: vlcController,
-                isFullScreenPresentation: true,
-                fullScreenTitle: title.isEmpty ? "播放中" : title
-            )
-                .ignoresSafeArea()
+                PlayerView(
+                    urlString: urlString,
+                    startPosition: startPosition,
+                    onProgressChanged: onProgressChanged,
+                    onPlaybackEnded: onPlaybackEnded,
+                    onToggleFullScreen: {
+                        if let onCloseRequested {
+                            onCloseRequested()
+                        } else {
+                            dismiss()
+                        }
+                    },
+                    canPlayNext: canPlayNext,
+                    onPlayNext: onPlayNext,
+                    systemController: systemController,
+                    vlcController: vlcController,
+                    isFullScreenPresentation: true,
+                    fullScreenTitle: title.isEmpty ? "播放中" : title
+                )
+                    .frame(
+                        width: isPortraitContainer ? proxy.size.height : proxy.size.width,
+                        height: isPortraitContainer ? proxy.size.width : proxy.size.height
+                    )
+                    .rotationEffect(.degrees(rotateDegrees))
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+            }
         }
+        .ignoresSafeArea()
         #if os(iOS)
-        .onAppear { Self.setLandscapeLocked(true) }
+        .statusBar(hidden: true)
+        .onAppear {
+            deviceOrientation = UIDevice.current.orientation
+            Self.setLandscapeLocked(true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            deviceOrientation = UIDevice.current.orientation
+        }
         .onDisappear { Self.setLandscapeLocked(false) }
         #endif
     }
+
+    #if os(iOS)
+    /// 根据设备物理朝向决定旋转兜底的方向：
+    /// - Home 键在右（landscapeLeft）→ 内容顺时针转 90° 修正；
+    /// - Home 键在左（landscapeRight）→ 内容逆时针转 90° 修正。
+    private static func fallbackRotationDegrees(_ orientation: UIDevice.Orientation) -> Double {
+        orientation == .landscapeRight ? -90 : 90
+    }
+    #endif
 
     #if os(iOS)
     /// 进入全屏时锁定横屏并强制旋转；退出时恢复竖屏。
