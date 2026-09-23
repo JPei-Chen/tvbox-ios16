@@ -115,7 +115,8 @@ struct DetailView: View {
                     onPlayNext: playNextEpisodeIfNeeded,
                     systemController: sharedSystemController,
                     vlcController: sharedVLCController,
-                    onCloseRequested: closeMacFullScreenOverlay
+                    onCloseRequested: closeMacFullScreenOverlay,
+                    title: fullscreenTitle
                 )
                 .ignoresSafeArea()
                 .transition(.opacity)
@@ -152,7 +153,8 @@ struct DetailView: View {
                     onCloseRequested: {
                         isFullScreenDismissing = true
                         showFullScreen = false
-                    }
+                    },
+                    title: fullscreenTitle
                 )
             }
         }
@@ -546,6 +548,19 @@ struct DetailView: View {
         }
     }
     
+    /// 全屏播放器顶部标题：当前剧集名，取不到时回退片名。
+    private var fullscreenTitle: String {
+        let episodes = viewModel.currentEpisodes
+        let index = viewModel.selectedEpisodeIndex
+        if episodes.indices.contains(index) {
+            let name = episodes[index].name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty {
+                return name
+            }
+        }
+        return video.name
+    }
+
     private func openFullScreenPlayer() {
         #if os(iOS)
         showFullScreen = true
@@ -600,12 +615,14 @@ struct FullScreenPlayerView: View {
     var systemController: SystemPlayerSessionController? = nil
     var vlcController: VLCPlayerController? = nil
     var onCloseRequested: (() -> Void)? = nil
+    /// 顶部标题（如「第3集」）。
+    var title: String = ""
     @Environment(\.dismiss) private var dismiss
-    
+
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
-            
+
             PlayerView(
                 urlString: urlString,
                 startPosition: startPosition,
@@ -624,25 +641,63 @@ struct FullScreenPlayerView: View {
                 vlcController: vlcController
             )
                 .ignoresSafeArea()
-            
-            VStack {
-                HStack {
-                    Button {
-                        if let onCloseRequested {
-                            onCloseRequested()
-                        } else {
-                            dismiss()
-                        }
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.white.opacity(0.8))
+
+            // 顶部导航渐变 + 返回按钮 + 标题
+            HStack(spacing: 12) {
+                Button {
+                    HapticManager.shared.lightImpact()
+                    if let onCloseRequested {
+                        onCloseRequested()
+                    } else {
+                        dismiss()
                     }
-                    Spacer()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 40, height: 40)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
                 }
-                .padding()
+                .buttonStyle(.plain)
+
+                Text(title.isEmpty ? "播放中" : title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+
                 Spacer()
             }
+            .padding(.leading, 14)
+            .padding(.trailing, 20)
+            .padding(.top, 10)
+            .background(
+                LinearGradient(
+                    colors: [.black.opacity(0.55), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+                .frame(height: 120), alignment: .top
+            )
+        }
+        #if os(iOS)
+        .onAppear { Self.setLandscapeLocked(true) }
+        .onDisappear { Self.setLandscapeLocked(false) }
+        #endif
+    }
+
+    #if os(iOS)
+    /// 进入全屏时锁定横屏并强制旋转；退出时恢复竖屏。
+    @MainActor
+    static func setLandscapeLocked(_ locked: Bool) {
+        AppDelegate.isLandscapeOnly = locked
+        let target: UIInterfaceOrientationMask = locked ? .landscape : .portrait
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        for scene in scenes {
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: target))
+            scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
         }
     }
+    #endif
 }
