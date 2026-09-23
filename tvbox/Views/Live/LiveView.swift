@@ -162,16 +162,33 @@ struct LiveView: View {
     // MARK: - 空状态
     
     private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "tv.slash")
-                .font(.system(size: 48))
-                .foregroundColor(.gray)
-            Text("暂无直播源")
-                .font(.headline)
-                .foregroundColor(.gray)
-            Text("请在设置中配置包含直播源的接口")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 16) {
+            // 空状态也要有返回入口，否则没有直播源时用户会被困在本页。
+            HStack {
+                #if os(iOS)
+                liveBackButton
+                #endif
+                Spacer()
+            }
+            .padding(.top, 18)
+            .padding(.horizontal, 16)
+
+            Spacer()
+
+            VStack(spacing: 16) {
+                Image(systemName: "tv.slash")
+                    .font(.system(size: 48))
+                    .foregroundColor(.gray)
+                Text("暂无直播源")
+                    .font(.headline)
+                    .foregroundColor(.gray)
+                Text("请在设置中配置包含直播源的接口")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+
+            Spacer()
         }
     }
     
