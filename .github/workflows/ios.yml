@@ -32,13 +32,26 @@ jobs:
 
       - name: 打印关键构建设置（确认最低系统版本）
         run: |
+          echo "=== project.yml 里声明的 SWIFT_VERSION ==="
+          grep -n "SWIFT_VERSION" project.yml || true
+          echo ""
+          echo "=== 工程实际生效的设置 ==="
           xcodebuild -project tvbox.xcodeproj -scheme tvbox -showBuildSettings -sdk iphoneos \
-            | grep -E "IPHONEOS_DEPLOYMENT_TARGET|PRODUCT_BUNDLE_IDENTIFIER|PRODUCT_NAME|SWIFT_VERSION" || true
+            | grep -E "IPHONEOS_DEPLOYMENT_TARGET|PRODUCT_BUNDLE_IDENTIFIER|PRODUCT_NAME|SWIFT_VERSION|SWIFT_STRICT_CONCURRENCY" || true
+          echo ""
+          echo "=== 新增文件是否已被工程收录 ==="
+          for f in SourceBrowserView SourceBrowserViewModel; do
+            if grep -q "$f" tvbox.xcodeproj/project.pbxproj; then
+              echo "OK  $f 已收录"
+            else
+              echo "!!  $f 未被工程收录"
+            fi
+          done
 
       - name: 归档构建（关闭代码签名）
         run: |
-          set -o pipefail
           rm -rf build
+          set +e
           xcodebuild archive \
             -project tvbox.xcodeproj \
             -scheme tvbox \
@@ -54,8 +67,51 @@ jobs:
             CODE_SIGN_ENTITLEMENTS="" \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
-            SWIFT_VERSION=5.0 \
-            ONLY_ACTIVE_ARCH=NO
+            ONLY_ACTIVE_ARCH=NO > build.log 2>&1 || true
+          echo "=== xcodebuild 退出码已忽略，交由下一步判定 ==="
+          tail -5 build.log
+
+      - name: 提取构建日志摘要（写入 Job Summary，公开可读）
+        if: always()
+        run: |
+          echo "=== 诊断信息 ==="
+          echo "- build.log 是否存在: $([ -f build.log ] && echo yes || echo no)"
+          echo "- build.log 行数: $(wc -l < build.log 2>/dev/null || echo 0)"
+          echo ""
+          {
+            echo "## Xcode 构建错误摘要"
+            echo ""
+            echo "### error 行（去重，最多 60 条）"
+            echo ""
+            echo '```text'
+            grep -E "error:|fatal error:" build.log 2>/dev/null \
+              | sed -e 's|/Users/runner/work/tvbox-ios16/tvbox-ios16/||' \
+              | sort -u | head -60 || echo "（未匹配到 error: 行）"
+            echo '```'
+            echo ""
+            echo "### 日志最后 80 行"
+            echo ""
+            echo '```text'
+            tail -80 build.log 2>/dev/null || echo "（build.log 不存在）"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: 判定构建结果
+        run: |
+          if [ ! -f build.log ]; then
+            echo "::error::build.log 未生成，xcodebuild 未正常执行"
+            exit 1
+          fi
+          if grep -qE "^.*error:|\*\* ARCHIVE FAILED \*\*" build.log; then
+            echo "::error::归档构建失败，详见本次运行的 Job Summary"
+            exit 1
+          fi
+          if [ ! -d "build/tvbox.xcarchive" ]; then
+            echo "::error::构建未产出 .xcarchive"
+            tail -40 build.log
+            exit 1
+          fi
+          echo "归档成功"
 
       - name: 打包成未签名 IPA
         run: |
