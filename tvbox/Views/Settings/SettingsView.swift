@@ -38,11 +38,6 @@ struct SettingsView: View {
         case vlcBuffer
         case playTimeStep
     }
-
-    /// 从 Info.plist 读取版本号，避免硬编码与工程版本不同步。
-    static let appVersion: String = {
-        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "1.1.0"
-    }()
     
     var body: some View {
         NavigationStack {
@@ -130,7 +125,7 @@ struct SettingsView: View {
                     
                     // 关于
                     SectionCard(title: "关于") {
-                        SettingsRow(icon: "info.circle", title: "版本", value: Self.appVersion, action: nil)
+                        SettingsRow(icon: "info.circle", title: "版本", value: "1.0.0", action: nil)
                         Divider().background(Color.white.opacity(0.1))
                         SettingsRow(icon: "globe", title: "站点数量", value: "\(apiConfig.sourceBeanList.count)", action: nil)
                         Divider().background(Color.white.opacity(0.1))

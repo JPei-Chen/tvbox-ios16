@@ -1,6 +1,5 @@
 import SwiftUI
 import AVKit
-import AVFoundation
 
 #if os(macOS)
 import AppKit
@@ -8,62 +7,18 @@ import AppKit
 import UIKit
 #endif
 
-/// 跨平台播放器：macOS 使用 AVPlayerView，避免 SwiftUI.VideoPlayer 在 macOS 的崩溃问题；
-/// iOS 使用关闭自带控制条的 AVPlayerViewController，统一由上层自定义控制条交互，
-/// 避免系统控制条（倍速/投屏/画中画/全屏）与自定义控制条叠加显示。
+/// 跨平台播放器：macOS 使用 AVPlayerView，避免 SwiftUI.VideoPlayer 在 macOS 的崩溃问题
 struct PlatformVideoPlayer: View {
     let player: AVPlayer
-
+    
     var body: some View {
         #if os(macOS)
         MacOSPlayerView(player: player)
         #else
-        IOSAVPlayerContainer(player: player)
+        VideoPlayer(player: player)
         #endif
     }
 }
-
-#if !os(macOS)
-/// iOS 播放容器：AVPlayerViewController 关闭自带控制条（showsPlaybackControls = false）。
-/// 相比 SwiftUI.VideoPlayer：不再叠加原生控件，进度/倍速/全屏全部由自定义控制条接管；
-/// 同时显式声明 .playback 音频会话，避免静音键误伤视频声音。
-struct IOSAVPlayerContainer: UIViewControllerRepresentable {
-    let player: AVPlayer
-
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        try? AVAudioSession.sharedInstance().setCategory(.playback)
-        try? AVAudioSession.sharedInstance().setActive(true)
-        let controller = AVPlayerViewController()
-        controller.showsPlaybackControls = false
-        controller.videoGravity = .resizeAspect
-        controller.player = player
-        return controller
-    }
-
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
-        if controller.player !== player {
-            controller.player = player
-        }
-    }
-
-    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: ()) {
-        controller.player = nil
-    }
-}
-
-/// AirPlay 投放路由选择按钮（替代被隐藏的原生 AirPlay 入口）。
-struct AirPlayRoutePicker: UIViewRepresentable {
-    func makeUIView(context: Context) -> AVRoutePickerView {
-        let view = AVRoutePickerView()
-        view.tintColor = .white
-        view.activeTintColor = .white
-        view.backgroundColor = .clear
-        return view
-    }
-
-    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
-}
-#endif
 
 #if os(macOS)
 private struct MacOSPlayerView: NSViewRepresentable {
@@ -766,22 +721,17 @@ struct AVPlayerContentView: View {
                 
                 Spacer()
                 
-                // 右：AirPlay 投放 + 全屏
-                HStack(spacing: 2) {
-                    AirPlayRoutePicker()
-                        .frame(width: 36, height: 36)
-
-                    if let onToggleFullScreen {
-                        Button {
-                            wakeUpControls()
-                            onToggleFullScreen()
-                        } label: {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 14, weight: .bold))
-                                .frame(minWidth: 36, minHeight: 36)
-                        }
-                        .buttonStyle(.plain)
+                // 右：全屏
+                if let onToggleFullScreen {
+                    Button {
+                        wakeUpControls()
+                        onToggleFullScreen()
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 14, weight: .bold))
+                            .frame(minWidth: 36, minHeight: 36)
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 12)

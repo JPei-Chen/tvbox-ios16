@@ -164,37 +164,26 @@ struct ContentView: View {
                     Label("首页", systemImage: "house.fill")
                 }
                 .tag(0)
-
-            NavigationStack {
-                SourceBrowserView()
-                    .navigationDestination(for: Movie.Video.self) { video in
-                        DetailView(video: video)
-                    }
-            }
-                .tabItem {
-                    Label("源站", systemImage: "square.grid.2x2.fill")
-                }
-                .tag(1)
-
+            
             LiveView(onExit: {
                 selectedTab = 0
             })
                 .tabItem {
                     Label("直播", systemImage: "tv.fill")
                 }
-                .tag(2)
-
+                .tag(1)
+            
             SearchView()
                 .tabItem {
                     Label("搜索", systemImage: "magnifyingglass")
                 }
-                .tag(3)
-
+                .tag(2)
+            
             ProfileView()
                 .tabItem {
                     Label("个人中心", systemImage: "person.fill")
                 }
-                .tag(4)
+                .tag(3)
         }
         .tint(.orange)
         .onChange(of: selectedTab) { _ in
@@ -205,39 +194,30 @@ struct ContentView: View {
             List(selection: $selectedTab) {
                 Label("首页", systemImage: "house.fill")
                     .tag(0)
-                Label("源站", systemImage: "square.grid.2x2.fill")
-                    .tag(1)
                 Label("直播", systemImage: "tv.fill")
-                    .tag(2)
+                    .tag(1)
                 Label("搜索", systemImage: "magnifyingglass")
-                    .tag(3)
+                    .tag(2)
                 Label("收藏", systemImage: "heart.fill")
-                    .tag(4)
+                    .tag(3)
                 Label("历史", systemImage: "clock.fill")
-                    .tag(6)
-                Label("设置", systemImage: "gearshape.fill")
                     .tag(5)
+                Label("设置", systemImage: "gearshape.fill")
+                    .tag(4)
             }
             .navigationTitle("TVBox")
             .listStyle(.sidebar)
         } detail: {
             switch selectedTab {
             case 0: HomeView()
-            case 1:
-                NavigationStack {
-                    SourceBrowserView()
-                        .navigationDestination(for: Movie.Video.self) { video in
-                            DetailView(video: video)
-                        }
-                }
-            case 2: LiveView()
-            case 3: SearchView()
-            case 4:
+            case 1: LiveView()
+            case 2: SearchView()
+            case 3:
                 NavigationStack {
                     FavoritesView()
                 }
-            case 5: SettingsView()
-            case 6:
+            case 4: SettingsView()
+            case 5:
                 NavigationStack {
                     HistoryView()
                 }

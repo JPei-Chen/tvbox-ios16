@@ -7,8 +7,6 @@ struct HomeView: View {
     @EnvironmentObject var appState: AppState
     /// 观看历史（用于「继续观看」区块），实时响应增删。
     @ObservedObject private var historyStore = CacheStore.shared
-    /// 记录首页内容对应的源 key，主页源变化时自动刷新。
-    @State private var lastLoadedSourceKey = ""
 
     var body: some View {
         NavigationStack {
@@ -22,30 +20,6 @@ struct HomeView: View {
                         .font(.system(size: 24, weight: .heavy))
                         .foregroundColor(.white)
                     Spacer()
-
-                    // 源站入口：显示当前主页源，点击进入源站浏览页
-                    NavigationLink {
-                        SourceBrowserView()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "server.rack")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text(homeSourceName)
-                                .font(.system(size: 13, weight: .semibold))
-                                .lineLimit(1)
-                                .frame(maxWidth: 130)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .bold))
-                        }
-                        .foregroundColor(.white.opacity(0.85))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(Color.white.opacity(0.08)))
-                        .overlay(
-                            Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
@@ -83,28 +57,11 @@ struct HomeView: View {
         .task {
             await viewModel.loadSorts()
             await viewModel.loadRecommendSections()
-            lastLoadedSourceKey = appState.currentSourceKey
         }
         .refreshable {
             await viewModel.refresh()
             await viewModel.loadRecommendSections()
         }
-        .onChange(of: appState.currentSourceKey) { newKey in
-            // 主页源被切换（源站页「设为主页」）时自动刷新首页内容
-            guard !newKey.isEmpty, newKey != lastLoadedSourceKey else { return }
-            lastLoadedSourceKey = newKey
-            Task {
-                await viewModel.refresh()
-                await viewModel.loadRecommendSections()
-            }
-        }
-    }
-
-    /// 当前主页源显示名。
-    private var homeSourceName: String {
-        ApiConfig.shared.getSource(key: appState.currentSourceKey)?.name
-            ?? ApiConfig.shared.homeSourceBean?.name
-            ?? "选择源"
     }
 
     // MARK: - 热门榜单
