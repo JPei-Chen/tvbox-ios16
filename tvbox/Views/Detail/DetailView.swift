@@ -620,7 +620,7 @@ struct FullScreenPlayerView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             Color.black.ignoresSafeArea()
 
             PlayerView(
@@ -638,48 +638,11 @@ struct FullScreenPlayerView: View {
                 canPlayNext: canPlayNext,
                 onPlayNext: onPlayNext,
                 systemController: systemController,
-                vlcController: vlcController
+                vlcController: vlcController,
+                isFullScreenPresentation: true,
+                fullScreenTitle: title.isEmpty ? "播放中" : title
             )
                 .ignoresSafeArea()
-
-            // 顶部导航渐变 + 返回按钮 + 标题
-            HStack(spacing: 12) {
-                Button {
-                    HapticManager.shared.lightImpact()
-                    if let onCloseRequested {
-                        onCloseRequested()
-                    } else {
-                        dismiss()
-                    }
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 40, height: 40)
-                        .background(Color.black.opacity(0.3))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-
-                Text(title.isEmpty ? "播放中" : title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-
-                Spacer()
-            }
-            .padding(.leading, 14)
-            .padding(.trailing, 20)
-            .padding(.top, 10)
-            .background(
-                LinearGradient(
-                    colors: [.black.opacity(0.55), .clear],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-                .frame(height: 120), alignment: .top
-            )
         }
         #if os(iOS)
         .onAppear { Self.setLandscapeLocked(true) }
@@ -689,14 +652,20 @@ struct FullScreenPlayerView: View {
 
     #if os(iOS)
     /// 进入全屏时锁定横屏并强制旋转；退出时恢复竖屏。
+    /// 异步执行以确保在全屏 cover 呈现动画完成后，几何更新请求不被系统吞掉。
     @MainActor
     static func setLandscapeLocked(_ locked: Bool) {
         AppDelegate.isLandscapeOnly = locked
         let target: UIInterfaceOrientationMask = locked ? .landscape : .portrait
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        for scene in scenes {
-            scene.requestGeometryUpdate(.iOS(interfaceOrientations: target))
-            scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        Task { @MainActor in
+            // 稍等呈现动画结束再请求旋转，成功率更高。
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            for scene in scenes {
+                scene.windows.forEach { $0.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations() }
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: target))
+                scene.windows.forEach { $0.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations() }
+            }
         }
     }
     #endif
