@@ -164,26 +164,32 @@ struct ContentView: View {
                     Label("首页", systemImage: "house.fill")
                 }
                 .tag(0)
-            
+
+            SourceBrowseView()
+                .tabItem {
+                    Label("资源", systemImage: "square.grid.2x2.fill")
+                }
+                .tag(1)
+
             LiveView(onExit: {
                 selectedTab = 0
             })
                 .tabItem {
                     Label("直播", systemImage: "tv.fill")
                 }
-                .tag(1)
-            
+                .tag(2)
+
             SearchView()
                 .tabItem {
                     Label("搜索", systemImage: "magnifyingglass")
                 }
-                .tag(2)
-            
+                .tag(3)
+
             ProfileView()
                 .tabItem {
                     Label("个人中心", systemImage: "person.fill")
                 }
-                .tag(3)
+                .tag(4)
         }
         .tint(.orange)
         .onChange(of: selectedTab) { _ in
@@ -194,30 +200,36 @@ struct ContentView: View {
             List(selection: $selectedTab) {
                 Label("首页", systemImage: "house.fill")
                     .tag(0)
-                Label("直播", systemImage: "tv.fill")
+                Label("资源", systemImage: "square.grid.2x2.fill")
                     .tag(1)
-                Label("搜索", systemImage: "magnifyingglass")
+                Label("直播", systemImage: "tv.fill")
                     .tag(2)
-                Label("收藏", systemImage: "heart.fill")
+                Label("搜索", systemImage: "magnifyingglass")
                     .tag(3)
-                Label("历史", systemImage: "clock.fill")
-                    .tag(5)
-                Label("设置", systemImage: "gearshape.fill")
+                Label("收藏", systemImage: "heart.fill")
                     .tag(4)
+                Label("历史", systemImage: "clock.fill")
+                    .tag(6)
+                Label("设置", systemImage: "gearshape.fill")
+                    .tag(5)
             }
             .navigationTitle("TVBox")
             .listStyle(.sidebar)
         } detail: {
             switch selectedTab {
             case 0: HomeView()
-            case 1: LiveView()
-            case 2: SearchView()
-            case 3:
+            case 1:
+                NavigationStack {
+                    SourceBrowseView()
+                }
+            case 2: LiveView()
+            case 3: SearchView()
+            case 4:
                 NavigationStack {
                     FavoritesView()
                 }
-            case 4: SettingsView()
-            case 5:
+            case 5: SettingsView()
+            case 6:
                 NavigationStack {
                     HistoryView()
                 }
