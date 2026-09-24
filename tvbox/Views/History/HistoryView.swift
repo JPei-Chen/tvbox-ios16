@@ -6,7 +6,9 @@ struct HistoryView: View {
     @ObservedObject private var store = CacheStore.shared
     
     /// 按最近播放时间倒序展示历史记录。
-    private var records: [VodRecord] { store.records }
+    /// 只取「未被手动移除」的条目：历史页删除只影响这里，
+    /// 首页「继续观看」中的同一条目会保留，两边需各自手动删除。
+    private var records: [VodRecord] { store.historyRecords }
     
     #if os(iOS)
     /// iOS 网格配置。
@@ -42,9 +44,9 @@ struct HistoryView: View {
                             .buttonStyle(.plain)
                             .contextMenu {
                                 Button(role: .destructive) {
-                                    store.removeRecord(item)
+                                    store.hideFromHistory(item)
                                 } label: {
-                                    Label("删除记录", systemImage: "trash")
+                                    Label("从历史记录中移除", systemImage: "trash")
                                 }
                             }
                         }

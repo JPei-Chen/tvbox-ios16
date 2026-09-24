@@ -132,8 +132,9 @@ struct HomeView: View {
     // MARK: - 继续观看
 
     /// 最近 10 条观看记录，最新在前。
+    /// 只取「未被手动移除」的条目：首页长按移除只影响这里，不会动历史记录页。
     private var recentRecords: [VodRecord] {
-        Array(historyStore.records.prefix(10))
+        Array(historyStore.continueWatchingRecords.prefix(10))
     }
 
     @ViewBuilder
@@ -148,6 +149,9 @@ struct HomeView: View {
                         .font(.system(size: 17, weight: .bold))
                         .foregroundColor(.white)
                     Spacer()
+                    Text("长按移除 · 不影响历史")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.4))
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
@@ -163,6 +167,14 @@ struct HomeView: View {
                             #else
                             .buttonStyle(.plain)
                             #endif
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    HapticManager.shared.lightImpact()
+                                    removeRecord(record)
+                                } label: {
+                                    Label("从「继续观看」移除", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -174,6 +186,12 @@ struct HomeView: View {
     /// 从观看记录还原可导航的视频对象（与历史页同一规则）。
     private func movieVideo(from item: VodRecord) -> Movie.Video {
         Movie.Video(id: item.vodId, name: item.vodName, pic: item.vodPic, sourceKey: item.sourceKey)
+    }
+
+    /// 移除单条观看记录：只让它从首页「继续观看」消失。
+    /// 历史记录页中的同一条目仍保留，需要单独去历史页删除。
+    private func removeRecord(_ record: VodRecord) {
+        CacheStore.shared.hideFromContinueWatching(record)
     }
 }
 

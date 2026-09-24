@@ -74,6 +74,12 @@ struct VodRecord: Codable, Identifiable, Equatable {
     var dataJson: String = ""
     /// 最近播放时间。
     var updateTime: Date = Date()
+    /// 是否已从首页「继续观看」中手动移除。
+    /// 只影响首页展示，历史页与续播进度不受影响。
+    var hiddenFromContinue: Bool = false
+    /// 是否已从历史记录页手动移除。
+    /// 只影响历史页展示，「继续观看」与续播进度不受影响。
+    var hiddenFromHistory: Bool = false
 
     /// 列表渲染使用的稳定标识。
     var id: String {
@@ -88,6 +94,27 @@ struct VodRecord: Codable, Identifiable, Equatable {
         self.sourceKey = sourceKey
         self.playNote = playNote
         self.updateTime = Date()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bizKey, vodId, vodName, vodPic, sourceKey, playNote, dataJson, updateTime
+        case hiddenFromContinue, hiddenFromHistory
+    }
+
+    /// 自定义解码：两个「隐藏」标记是后加的字段，旧版落盘数据里没有这两个键，
+    /// 缺失时按 `false` 处理，保证升级后老记录不会因为字段缺失而整体解码失败。
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bizKey = try container.decodeIfPresent(String.self, forKey: .bizKey) ?? ""
+        vodId = try container.decodeIfPresent(String.self, forKey: .vodId) ?? ""
+        vodName = try container.decodeIfPresent(String.self, forKey: .vodName) ?? ""
+        vodPic = try container.decodeIfPresent(String.self, forKey: .vodPic) ?? ""
+        sourceKey = try container.decodeIfPresent(String.self, forKey: .sourceKey) ?? ""
+        playNote = try container.decodeIfPresent(String.self, forKey: .playNote) ?? ""
+        dataJson = try container.decodeIfPresent(String.self, forKey: .dataJson) ?? ""
+        updateTime = try container.decodeIfPresent(Date.self, forKey: .updateTime) ?? Date()
+        hiddenFromContinue = try container.decodeIfPresent(Bool.self, forKey: .hiddenFromContinue) ?? false
+        hiddenFromHistory = try container.decodeIfPresent(Bool.self, forKey: .hiddenFromHistory) ?? false
     }
 }
 
@@ -123,6 +150,16 @@ final class CacheStore: ObservableObject {
     @Published private(set) var records: [VodRecord] = []
     /// 通用缓存列表。
     @Published private(set) var cacheItems: [CacheItem] = []
+
+    /// 首页「继续观看」使用的记录：排除已被手动移除的条目。
+    var continueWatchingRecords: [VodRecord] {
+        records.filter { !$0.hiddenFromContinue }
+    }
+
+    /// 历史记录页使用的记录：排除已被手动移除的条目。
+    var historyRecords: [VodRecord] {
+        records.filter { !$0.hiddenFromHistory }
+    }
 
     private let collectsURL: URL
     private let recordsURL: URL
@@ -243,16 +280,23 @@ final class CacheStore: ObservableObject {
     // MARK: - 播放历史
 
     /// 写入或更新播放记录。
-    /// - Note: 未传入 `playbackState` 时会保留该记录已有的续播状态。
+    /// - Parameters:
+    ///   - playbackState: 未传入时会保留该记录已有的续播状态。
+    ///   - reveal: 本次是否为一次「有效观看」（在播放页累计看满 30 秒）。
+    ///     传 `true` 时会把该影片从手动移除状态中恢复，重新出现在「继续观看」和历史页；
+    ///     传 `false`（默认）时保留原有的移除状态——即用户删掉的条目不会因为
+    ///     一次点开或进度回写又自己冒出来。
     func addRecord(
         _ video: Movie.Video,
         playNote: String,
-        playbackState: VodPlaybackState? = nil
+        playbackState: VodPlaybackState? = nil,
+        reveal: Bool = false
     ) {
         let encodedState = Self.encodePlaybackState(playbackState)
-        let previousStateJson = records
-            .first { matchesRecord($0, vodId: video.id, sourceKey: video.sourceKey) }?
-            .dataJson
+        let previous = records.first { matchesRecord($0, vodId: video.id, sourceKey: video.sourceKey) }
+        let previousStateJson = previous?.dataJson
+        let previousHiddenFromContinue = previous?.hiddenFromContinue ?? false
+        let previousHiddenFromHistory = previous?.hiddenFromHistory ?? false
 
         records.removeAll { matchesRecord($0, vodId: video.id, sourceKey: video.sourceKey) }
 
@@ -268,6 +312,9 @@ final class CacheStore: ObservableObject {
         } else if let previousStateJson {
             record.dataJson = previousStateJson
         }
+        // 只有「有效观看」才恢复显示，普通进度回写保持用户的手动移除结果。
+        record.hiddenFromContinue = reveal ? false : previousHiddenFromContinue
+        record.hiddenFromHistory = reveal ? false : previousHiddenFromHistory
         records.append(record)
         saveRecords()
     }
@@ -282,16 +329,46 @@ final class CacheStore: ObservableObject {
         return Self.decodePlaybackState(record.dataJson)
     }
 
-    /// 按历史条目删除单条记录（供历史页列表使用）。
+    /// 仅从首页「继续观看」中移除单条记录（供首页长按菜单使用）。
+    /// - Note: 历史记录页仍保留该条目，续播进度也不受影响，两边互不干扰。
+    func hideFromContinueWatching(_ item: VodRecord) {
+        guard let index = records.firstIndex(where: { $0.id == item.id }) else { return }
+        records[index].hiddenFromContinue = true
+        pruneIfFullyHidden(at: index)
+        saveRecords()
+    }
+
+    /// 仅从历史记录页移除单条记录（供历史页列表使用）。
+    /// - Note: 首页「继续观看」仍保留该条目，续播进度也不受影响。
+    func hideFromHistory(_ item: VodRecord) {
+        guard let index = records.firstIndex(where: { $0.id == item.id }) else { return }
+        records[index].hiddenFromHistory = true
+        pruneIfFullyHidden(at: index)
+        saveRecords()
+    }
+
+    /// 彻底删除单条记录（两个列表都会消失），仅在需要清掉数据时使用。
     func removeRecord(_ item: VodRecord) {
         records.removeAll { $0.id == item.id }
         saveRecords()
     }
 
-    /// 清空全部播放历史。
+    /// 清空历史记录页：只把现有条目从历史页移除，「继续观看」与续播进度保留。
     func clearHistory() {
-        records.removeAll()
+        for index in records.indices {
+            records[index].hiddenFromHistory = true
+        }
+        records.removeAll { $0.hiddenFromContinue && $0.hiddenFromHistory }
         saveRecords()
+    }
+
+    /// 两个列表都被手动移除时彻底删除该条记录，避免无效数据无限堆积。
+    private func pruneIfFullyHidden(at index: Int) {
+        guard records.indices.contains(index) else { return }
+        let item = records[index]
+        if item.hiddenFromContinue && item.hiddenFromHistory {
+            records.remove(at: index)
+        }
     }
 
     // MARK: - 通用缓存

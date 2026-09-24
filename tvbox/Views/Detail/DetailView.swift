@@ -26,6 +26,17 @@ struct DetailView: View {
     @State private var isSwitchingSource = false
     /// 换源失败提示。
     @State private var sourceSwitchMessage: String?
+    /// 观看满 30 秒才写入「继续观看」的时间门槛。
+    private static let historyEntryThreshold: Double = 30
+    /// 本次进入详情页后累计的有效播放秒数（按进度回调增量累加）。
+    @State private var watchedSeconds: Double = 0
+    /// 上次进度回调的时间戳，用于计算增量。
+    @State private var lastProgressTick: TimeInterval = 0
+    /// 该影片是否已存在于观看记录（已存在则实时更新，不再受 30 秒门槛限制）。
+    @State private var historyRecordExists = false
+    /// 本次会话是否已把该影片「恢复显示」（用户可能此前在首页/历史页手动移除过）。
+    /// 仅当本次播放累计满 30 秒时置位，避免一次点开就让删掉的条目自己冒出来。
+    @State private var sessionRevealed = false
 
     /// 当前展示的视频：换源成功后指向新源站条目，否则为初始视频。
     private var displayVideo: Movie.Video { switchedVideo ?? video }
@@ -116,6 +127,15 @@ struct DetailView: View {
         #endif
         .task(id: "\(displayVideo.sourceKey)-\(displayVideo.id)") {
             await viewModel.loadDetail(video: displayVideo)
+            // 已有观看记录：后续进度实时更新（不再受 30 秒门槛限制）；
+            // 新影片则从 0 开始累计，满 30 秒才进入「继续观看」。
+            historyRecordExists = CacheStore.shared.getPlaybackState(
+                vodId: displayVideo.id,
+                sourceKey: displayVideo.sourceKey
+            ) != nil
+            watchedSeconds = 0
+            lastProgressTick = 0
+            sessionRevealed = false
             restorePlaybackFromHistory()
             refreshCollectState()
         }
@@ -358,7 +378,7 @@ struct DetailView: View {
         if !viewModel.isPlaying && viewModel.vodInfo != nil {
             Button {
                 viewModel.selectEpisode(index: 0)
-                saveHistoryForCurrentEpisode()
+                // 不在此处写入观看记录：由 accumulateWatchTime 累计满 30 秒后统一入库。
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "play.fill")
@@ -454,7 +474,7 @@ struct DetailView: View {
             withAnimation {
                 viewModel.selectFlag(flag)
             }
-            if viewModel.isPlaying {
+            if viewModel.isPlaying, historyRecordExists {
                 saveHistoryForCurrentEpisode()
             }
         } label: {
@@ -504,7 +524,7 @@ struct DetailView: View {
             withAnimation {
                 viewModel.selectQuality(option)
             }
-            if viewModel.isPlaying {
+            if viewModel.isPlaying, historyRecordExists {
                 saveHistoryForCurrentEpisode()
             }
         } label: {
@@ -543,7 +563,9 @@ struct DetailView: View {
                     withAnimation {
                         viewModel.selectEpisode(index: index)
                     }
-                    saveHistoryForCurrentEpisode()
+                    if historyRecordExists {
+                        saveHistoryForCurrentEpisode()
+                    }
                 }
             )
         }
@@ -571,7 +593,11 @@ struct DetailView: View {
         viewModel.selectedEpisodeIndex + 1 < viewModel.currentEpisodes.count
     }
     
-    private func saveHistoryForCurrentEpisode(progressOverride: Double? = nil) {
+    /// 写入/更新当前剧集的观看记录。
+    /// - Parameter reveal: 传 `true` 表示本次是有效观看（累计看满 30 秒），
+    ///   会把该影片重新放回「继续观看」与历史页；默认 `false` 只回写进度，
+    ///   保持用户的手动移除结果不变。
+    private func saveHistoryForCurrentEpisode(progressOverride: Double? = nil, reveal: Bool = false) {
         let episodeName = viewModel.vodInfo?.currentEpisode?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let episodeLabel = episodeName.isEmpty ? "第\(viewModel.selectedEpisodeIndex + 1)集" : episodeName
         let progress = max(progressOverride ?? viewModel.currentPlaybackSeconds(), 0)
@@ -588,18 +614,43 @@ struct DetailView: View {
             CacheStore.shared.addRecord(
                 displayVideo,
                 playNote: playNote,
-                playbackState: playbackState
+                playbackState: playbackState,
+                reveal: reveal
             )
         }
     }
     
     private func handlePlaybackProgress(_ seconds: Double, _: Double?) {
         viewModel.updatePlaybackProgress(seconds: seconds)
+        accumulateWatchTime(latestProgress: seconds)
+        guard historyRecordExists else { return }
         persistHistoryIfNeeded(force: false, currentProgress: seconds)
     }
-    
+
+    /// 累积有效观看时长，满 `historyEntryThreshold` 秒后写入「继续观看」。
+    /// 进度回调约每秒一次；间隔过大（暂停/挂起）的片段不计入。
+    /// 本次会话首次满 30 秒时按「有效观看」处理，会一并恢复被手动移除的显示状态。
+    private func accumulateWatchTime(latestProgress: Double) {
+        let now = Date().timeIntervalSince1970
+        defer { lastProgressTick = now }
+
+        guard viewModel.isPlaying, lastProgressTick > 0 else { return }
+        let delta = now - lastProgressTick
+        guard delta > 0, delta <= 3 else { return }
+
+        watchedSeconds += delta
+        guard watchedSeconds >= Self.historyEntryThreshold else { return }
+        guard !sessionRevealed else { return }
+
+        sessionRevealed = true
+        historyRecordExists = true
+        saveHistoryForCurrentEpisode(progressOverride: latestProgress, reveal: true)
+    }
+
     private func persistHistoryIfNeeded(force: Bool, currentProgress: Double? = nil) {
         guard viewModel.isPlaying else { return }
+        // 未达到 30 秒门槛（且此前无记录）时不写入「继续观看」。
+        guard historyRecordExists else { return }
         let progress = max(currentProgress ?? viewModel.currentPlaybackSeconds(), 0)
         guard progress.isFinite else { return }
         
@@ -646,7 +697,7 @@ struct DetailView: View {
             moved = viewModel.playNext()
         }
         
-        if moved {
+        if moved, historyRecordExists {
             saveHistoryForCurrentEpisode()
         }
     }
