@@ -10,15 +10,45 @@ import UIKit
 /// 跨平台播放器：macOS 使用 AVPlayerView，避免 SwiftUI.VideoPlayer 在 macOS 的崩溃问题
 struct PlatformVideoPlayer: View {
     let player: AVPlayer
-    
+
     var body: some View {
         #if os(macOS)
         MacOSPlayerView(player: player)
         #else
-        VideoPlayer(player: player)
+        ControlsFreePlayerView(player: player)
         #endif
     }
 }
+
+#if os(iOS)
+/// iOS：用 AVPlayerViewController 但**关闭其自带控制条**。
+/// SwiftUI 的 VideoPlayer 自带系统控制层（↺10 / AirPlay / ⋯），
+/// 不仅没有全屏按钮，还会盖在我们自绘的控制条上抢点击，
+/// 导致"点击播放器找不到全屏选项"。关掉后所有控制一律由
+/// 本文件的自绘 UI 提供（右上角常驻全屏按钮 + 底部控制条 + 手势层）。
+private struct ControlsFreePlayerView: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = false
+        controller.videoGravity = .resizeAspect
+        return controller
+    }
+
+    func updateUIView(_ uiView: AVPlayerViewController, context: Context) {
+        if uiView.player !== player {
+            uiView.player = player
+        }
+        uiView.showsPlaybackControls = false
+    }
+
+    static func dismantleUIView(_ uiView: AVPlayerViewController, coordinator: ()) {
+        uiView.player = nil
+    }
+}
+#endif
 
 #if os(macOS)
 private struct MacOSPlayerView: NSViewRepresentable {
