@@ -26,10 +26,10 @@ struct PlatformVideoPlayer: View {
 /// 不仅没有全屏按钮，还会盖在我们自绘的控制条上抢点击，
 /// 导致"点击播放器找不到全屏选项"。关掉后所有控制一律由
 /// 本文件的自绘 UI 提供（右上角常驻全屏按钮 + 底部控制条 + 手势层）。
-private struct ControlsFreePlayerView: UIViewRepresentable {
+private struct ControlsFreePlayerView: UIViewControllerRepresentable {
     let player: AVPlayer
 
-    func makeUIView(context: Context) -> AVPlayerViewController {
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.showsPlaybackControls = false
@@ -37,14 +37,14 @@ private struct ControlsFreePlayerView: UIViewRepresentable {
         return controller
     }
 
-    func updateUIView(_ uiView: AVPlayerViewController, context: Context) {
+    func updateUIViewController(_ uiView: AVPlayerViewController, context: Context) {
         if uiView.player !== player {
             uiView.player = player
         }
         uiView.showsPlaybackControls = false
     }
 
-    static func dismantleUIView(_ uiView: AVPlayerViewController, coordinator: ()) {
+    static func dismantleUIViewController(_ uiView: AVPlayerViewController, coordinator: ()) {
         uiView.player = nil
     }
 }
